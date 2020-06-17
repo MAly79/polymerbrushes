@@ -1,0 +1,52 @@
+#--- Brush Variables ---#
+
+variable      M      equal  60                 # The number of polymer chains grafted per brush
+variable      N      string 30                 # The number of beads per chain
+variable      L      equal  1                  # Fraction of LoopedChains/LinearChains (Looped Chains are made of 2 bonded linear chains)
+variable      xhi    equal  30                 # The width of the polymer Brush
+variable      yhi    equal  30                 # The length of the polymer Brush
+variable      wthick equal  3                  # The thickness of the FFC walls wthick=1,2,3,4 gives 2,3,4,6 layers respectively
+
+#--- Simulation Variables ---#
+variable       Temp      index 1               # The Temperature of the Thermostats
+variable       Tstep     equal 0.005           # Timestep in Tau (default = 0.005)
+variable       Nequil    equal 500000          # Number of timesteps to equilibrate
+variable       Npre      equal 500000          # Number of timesteps to compress
+variable       Ncomp     equal 2000000         # Number of timesteps to compress
+variable       Nshear    equal 2000000         # Number of timesteps to shear
+variable       Nthermo   equal 1000            # Number of timesteps between thermo data prints
+variable       Ndump_e   equal 10000           # snapshot every this many timesteps (equilibration)
+variable       Ndump_c   equal 10000           # snapshot every this many timesteps (compression)
+variable       Ndump_s   equal 10000           # snapshot every this many timesteps (Shearing)
+variable       Vwalli    index 0.0001 0.0005 0.001 0.005 0.01 0.05 0.1 0.5 1  # Relative wall Velocities (+-Vwall/2)
+variable       Pcomp     index 0.5             # Compressive Pressure applied to top wall
+
+
+#--- ForceFields ---#
+variable       epsLJ    equal 1.0              # The depth fo the Lennard-Jones potential well acting between all beads
+variable       sigLJ    equal 1.0              # The point at which the Lennard-Jones potential crosses zero
+variable       kFENE    equal 30.0             # The FENE spring constant
+variable       RmFENE   equal 1.5              # The max bond length for FENE bonds
+variable       RgSplit  equal 0.5              # Ignore this
+
+
+include        MDPBB.in                        # Jump to input script which creates the Brush Bilayer and Minimizes the structure
+print          "Created a Polymer Brush Bilayer with a Grafting density = $(v_M/(lx*ly))"
+
+label          sim                             # Start a Loop that will iterate through Vwalli
+                                               # This will allow us to run multiple simulations on the same Brush at different velocities
+
+include        ecs.in                          # Jump to input script which performs the Equil-Comp-Shear simulation
+shell          python post.py                  # Executes a python script which
+shell          mkdir  V=$(v_Vwalli)            # Creates a new folder for each Wall Velocity
+shell          cp -f  *.csv      V=$(v_Vwalli) # Saves the .csv files (*bdp*.csv, equil.csv, comp.csv, shear.csv, temps.csv, velps.csv)
+shell          cp -f  *.lammps   V=$(v_Vwalli) # Saves the log.lammps for each simulation
+shell          cp -f  *.rst      V=$(v_Vwalli) # Saves the restart files (ecs.rst, MDPBB.rst)
+shell          cp -f  *.dump     V=$(v_Vwalli) # Saves the dumps (full_xx.dump, beads_xx.dump)
+
+shell          pwd
+
+log           log.lammps
+next          Vwalli                           # iterate to next Vwalli and start loop again
+jump          main.in sim
+clear

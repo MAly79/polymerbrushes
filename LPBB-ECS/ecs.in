@@ -1,0 +1,287 @@
+# This is an input script that performs equilibrion, compression and shearing
+# Simulations on the Polymer Brush Bilayer read from MDPBB.rst
+
+clear
+
+
+#--- Read in the Restart file ---#
+
+read_restart    MDPBB.rst
+reset_timestep  0
+
+#--- Redefine the bond coeffs ---#
+
+bond_coeff    1 fene ${kFENE} ${RmFENE} ${epsLJ} ${sigLJ}                # (K, Rmax) for FENE and (sigma, epsilon) for LJ
+bond_coeff    2 harmonic 800.0 $(1.5874 * sqrt(2)/2)                     # (K,ro) ro is the equilibrium distance
+neigh_modify   every 1 delay 10 check yes                                # These are default values
+
+#--- Define variables ---#
+
+# for dimensional values: eps = 4.14e-21 J at T = 300K and sigma = 0.5nm
+
+variable        Pcomp2    equal ${Pcomp}                    # This is to convert them from index style to float
+variable        Vwall     equal $(v_Vwalli)                   # This is to convert them from index style to float
+
+# For Equilibration - density profiles (10 for entire run)
+variable       Nfreqe   equal ${Nequil}/10                  # Calculate bin averages every this many timesteps
+variable       Neverye  equal 100                           # Use input values every this many timesteps
+variable       Nrepeate equal ${Nfreqe}/${Neverye}          # Number of times to use input values
+
+
+# For compression - density profiles (10 for entire run)
+variable       Nfreqc   equal ${Ncomp}/10                  # Calculate bin averages every this many timesteps
+variable       Neveryc  equal 100                          # Use input values every this many timesteps
+variable       Nrepeatc equal ${Nfreqc}/${Neveryc}         # Number of times to use input values
+
+# For Shear - density profiles (10 for entire run)
+variable       Nfreqs   equal ${Nshear}/10                 # Calculate bin averages every this many timesteps
+variable       Neverys  equal 100                          # Use input values every this many timesteps
+variable       Nrepeats equal ${Nfreqs}/${Neverys}         # Number of times to use input values
+
+
+variable       binres   equal  0.001                       # Giving 1000 data points across the sim. box
+
+
+
+variable       bwzmin  equal bound(bwall,zmin)             # Bottom wall zmin
+variable       bwzmax  equal bound(bwall,zmax)             # Bottom wall zmax
+variable       twzmin  equal bound(twall,zmin)             # Top wall zmin
+variable       twzmax  equal bound(twall,zmax)             # Top Wall zmax
+variable       surfcov equal $(v_M/(lx*ly))                # Calculate the surface coverage (Grafting Density)
+variable       D       equal v_twzmin-v_bwzmax             # Calculate the Wall Seperation Distace
+variable       Dout    equal v_twzmax-v_bwzmin             # Calculate outer wall seperation distance
+variable       srate   equal (v_Vwall/v_D)                 # Calculate the shear rate
+
+
+#--- Define regions and groups ---#
+
+region         bwallb  block  INF INF INF INF ${bwzmin} $(v_bwzmin + 0.4) units box           # Bottom wall bottom layer
+region         bwallm  block  INF INF INF INF $(v_bwzmin + 0.35) $(v_bwzmax - 0.35) units box # Bottom wall bulk layers
+region         bwallt  block  INF INF INF INF $(v_bwzmax - 0.7) $(v_bwzmax) units box         # Bottom wall top layer
+region         bmelt   block  INF INF INF INF $(v_bwzmax) $(v_twzmax / 2) units box           # Bottom half of melt region
+region         tmelt   block  INF INF INF INF $(v_twzmax / 2)  $(v_twzmin - 0.1) units box    # Top half of melt region
+region         twallb  block  INF INF INF INF $(v_twzmin - 0.1) $(v_twzmin + 0.35) units box  # Top wall bottom layer
+region         twallm  block  INF INF INF INF $(v_twzmin + 0.35) $(v_twzmax - 0.35) units box # Top wall bulk layers
+region         twallt  block  INF INF INF INF $(v_twzmax - 0.35) $(v_twzmax) units box        # Top wall top layer
+
+region         bmeltg block INF INF INF INF $(v_bwzmax) $(v_RgSplit * v_twzmax / 2) units box
+region         bmelts block INF INF INF INF $(v_RgSplit * v_twzmax / 2) $(v_twzmax / 2) units box
+
+group          bwsurf  region bwallt                # group of Bottom Wall Inner atoms
+group          bwbulk  region bwallm                # group of Bottom wall bulk atoms
+group          bwout   region bwallb                # group of Bottom wall Outer atoms
+group          bbeads  region bmelt                 # group of bottom beads
+group          tbeads  region tmelt                 # group of top beads
+group          abeads  union  bbeads tbeads         # group of all beads
+group          twsurf  region twallb                # group of Top wall Inner atoms
+group          twbulk  region twallm                # group of Top wall bulk atoms
+group          twout   region twallt                # group of Top wall Outer atoms
+group          rest4bot union abeads twall          # for use with group/group computes
+group          rest4top union abeads bwall          # for use with group/group computes
+group          walls    union bwall twall           # group of all wall atoms
+group          alltop   union twall tbeads          # group of all top atoms
+# Other groups are: gbeads ebeads fbeads bwall twall
+
+info system
+info coeffs
+
+############
+# Computes #
+############
+
+compute         Vir all pressure thermo_temp virial  # Computes the Virial Stress tensor for the entire simulation box
+compute         melTemp   abeads temp                # Computes the temp of just the melt
+compute         melPress  all    pressure melTemp    # Computes the melt pressure
+compute         wallTemp  walls  temp                # Computes Wall tempterature
+compute         wallPress all    pressure wallTemp   # Computes wall pressure
+variable        melDens   equal  $(mass(abeads))/(lx*ly*v_D) # Calculate the melt density
+
+#--- Forces and Energies ---#
+
+# Group/Group computes to try and calculate the forces on walls
+compute         fbwall  bwall group/group rest4bot
+compute         ftwall  twall group/group rest4top
+compute         fwalls  bwall group/group twall
+
+group           rest_bot union abeads bwall
+group           rest_bot2 subtract all bwsurf
+compute         ggbot bwsurf group/group rest_bot
+compute         ggbot2 bwsurf group/group rest_bot
+
+group           rest_top union abeads twall
+group           rest_top2 subtract all twsurf
+compute         ggtop twsurf group/group rest_top
+compute         ggtop2 twsurf group/group rest_top2
+
+
+#--- Calculate the applied force on each atom for the pressure applied---#
+variable Fcomp equal (${Pcomp}*lx*ly)              # This is the force that should be applied to the top face during compression
+variable Fcatom equal (-${Fcomp})/(count(twout))   # This is the per atom force than need to be applied to the top face
+
+variable Fpre equal (2*lx*ly)                     # This is the force that should be applied to the top face during compression
+variable Fcpre equal (-${Fpre})/(count(twout))    # This is the per atom force than need to be applied to the top face
+
+info groups variables                              # For diagnostics
+
+
+#################
+# Equilibration #
+#################
+
+#--- Number Density profiles (Equil) ---#
+compute         eabeads abeads chunk/atom bin/1d z lower $(zhi * v_binres)
+fix             abeads_edz abeads ave/chunk ${Neverye} ${Nrepeate} ${Nfreqe} eabeads density/number file abeads_edz
+compute         ebbeads bbeads chunk/atom bin/1d z lower $(zhi * v_binres)
+fix             bbeads_edz bbeads  ave/chunk ${Neverye} ${Nrepeate} ${Nfreqe} ebbeads density/number file bbeads_edz
+compute         etbeads tbeads chunk/atom bin/1d z lower $(zhi * v_binres)
+fix             tbeads_edz tbeads  ave/chunk ${Neverye} ${Nrepeate} ${Nfreqe} etbeads density/number file tbeads_edz
+
+#--- Radius of gyration of the bottom brush chains ---#
+compute         chunk_bot bbeads chunk/atom molecule         # Creates a chunkID for each molecule
+compute         rgbbeads bbeads gyration/chunk chunk_bot     # Calculates the radius of gyration of each molecule into a vector
+variable        aveRg    equal  (ave(c_rgbbeads))            # Average the vector values into a single value to ouput in thermo
+
+compute         grafted_part bbeads chunk/atom molecule region bmeltg       # Creates a chunkID for each molecule
+compute         rgbbeadsG bbeads gyration/chunk chunk_bot     # Calculates the radius of gyration of each molecule into a vector
+variable        aveRgG    equal  (ave(c_rgbbeadsG))            # Average the vector values into a single value to ouput in thermo
+
+compute         sheared_part bbeads chunk/atom molecule region bmelts         # Creates a chunkID for each molecule
+compute         rgbbeadsS bbeads gyration/chunk chunk_bot     # Calculates the radius of gyration of each molecule into a vector
+variable        aveRgS    equal  (ave(c_rgbbeadsS))            # Average the vector values into a single value to ouput in thermo
+
+
+#--- Fixes (Equil) ---#
+
+# Apply a velocity distribution to the molecules
+#velocity       abeads create ${Temp} 290842 dist gaussian
+#fix             nvt_melt    abeads nvt temp ${Temp} ${Temp} 100.0
+
+# NVE for all and langevin thermostat for melt
+fix             nve_melt abeads nve
+fix             lang_melt abeads langevin ${Temp} ${Temp} 0.1 798753
+fix             nve_walls  walls nve
+
+#--- Langevin thermostat the bulk of the walls in y ---#
+# Only thermostat the bulk of the wall not the surface or the outer layer
+compute         Tempyt     twbulk temp/partial 0 1 0
+fix             lang_tbulk twbulk langevin ${Temp} ${Temp} 0.1 87239 zero yes
+fix_modify      lang_tbulk temp Tempyt
+compute         Tempyb     bwbulk temp/partial 0 1 0
+fix             lang_bbulk bwbulk langevin ${Temp} ${Temp} 0.1 87239 zero yes
+fix_modify      lang_bbulk temp Tempyb
+
+#--- Freeze the outer layer of the walls ---#
+fix             freeze_bout bwout setforce 0.0 0.0 0.0
+fix             freeze_tout twout setforce 0.0 0.0 0.0
+
+#--- Thermo output ---#
+
+thermo_style  custom step etotal ke pe epair temp c_melTemp c_wallTemp v_Fcatom v_Pcomp2 press pxx pyy pzz pxy pxz pyz c_Vir c_Vir[1] c_Vir[2] c_Vir[3] c_Vir[4] c_Vir[5] c_Vir[6] c_melPress c_wallPress v_melDens v_surfcov v_aveRg v_aveRgG v_aveRgS v_Vwall v_srate v_D v_bwzmax zhi c_fbwall[1] c_fbwall[3] c_ftwall[1] c_ftwall[3] c_ggbot[1] c_ggbot[3] c_ggtop[1] c_ggtop[3]
+thermo        ${Nthermo}
+thermo_modify flush yes
+
+#--- Dumps ---#
+
+dump            fulleq all custom ${Ndump_e} full_eq.dump id type xs ys zs mol
+#dump            beadseq bbeads custom ${Ndump_e} beads_eq.dump id type xs ys zs mol
+#--- Run Equilibration ---#
+timestep    ${Tstep}
+run         ${Nequil}
+
+undump       fulleq
+#undump       beadseq
+#--- Unfix Equil ---#
+
+unfix abeads_edz
+unfix bbeads_edz
+unfix tbeads_edz
+
+unfix freeze_tout
+
+
+###############
+# Compression #
+###############
+
+
+#--- Bring the brushes closer together fit the sim box ---#
+
+variable       bbzmax  equal bound(bbeads,zmax)
+variable       tbzmin  equal bound(tbeads,zmin)
+displace_atoms  alltop move 0.0 0.0 -$(v_tbzmin - v_bbzmax) units box
+variable z_f equal bound(all,zmin)
+variable z_c equal bound(all,zmax)
+change_box all z final ${z_f} $(v_z_c + 0.1) units box  # Shrink the box after compression
+
+info variables
+
+#--- Computes ---#
+
+# Number density profiles
+
+compute         cabeads abeads chunk/atom bin/1d z lower $(zhi * v_binres)
+fix             abeads_cdz abeads  ave/chunk ${Neveryc} ${Nrepeatc} ${Nfreqc} cabeads density/number file abeads_cdz
+compute         cbbeads bbeads chunk/atom bin/1d z lower $(zhi * v_binres)
+fix             bbeads_cdz bbeads  ave/chunk ${Neveryc} ${Nrepeatc} ${Nfreqc} cbbeads density/number file bbeads_cdz
+compute         ctbeads tbeads chunk/atom bin/1d z lower $(zhi * v_binres)
+fix             tbeads_cdz tbeads  ave/chunk ${Neveryc} ${Nrepeatc} ${Nfreqc} ctbeads density/number file tbeads_cdz
+
+
+fix             freeze_pre twout setforce 0.0 0.0 NULL          # Make top wall into piston can only move in Z direction
+fix             comp_pre twout aveforce 0.0 0.0 ${Fcpre}       # Apply force to each of the top wall atoms
+fix             rwalls_pre all wall/reflect zlo EDGE zhi EDGE        # Reflect all atoms that pass the top or bottom of the simulation box
+
+
+
+#--- Dumps ---#
+
+dump            fullcp all custom ${Ndump_c} full_cp.dump id type xs ys zs mol
+#dump            beadscp abeads custom ${Ndump_c} beads_cp.dump id type xs ys zs mol
+
+#--- Run Compression ---#
+timestep    ${Tstep}
+run         ${Ncomp}
+undump      fullcp
+#undump      beadscp
+
+unfix abeads_cdz
+unfix bbeads_cdz
+unfix tbeads_cdz
+
+###############
+# Shearing    #
+###############
+
+#--- Keep only thermostat on walls ---#
+unfix lang_melt
+
+velocity    twout set $(v_Vwall/2) 0.0 0.0  units box       # Apply the relative wall velocities
+velocity    bwout set -$(v_Vwall/2) 0.0 0.0  units box      # In opposite directions for each wall
+
+
+#--- Number Density profiles ---#
+
+compute         sabeads abeads chunk/atom bin/1d z lower $(zhi * v_binres)
+fix             abeads_sdz abeads  ave/chunk ${Neverys} ${Nrepeats} ${Nfreqs} sabeads density/number file abeads_sdz
+compute         sbbeads bbeads chunk/atom bin/1d z lower $(zhi * v_binres)
+fix             bbeads_sdz bbeads  ave/chunk ${Neverys} ${Nrepeats} ${Nfreqs} sbbeads density/number file bbeads_sdz
+compute         stbeads tbeads chunk/atom bin/1d z lower $(zhi * v_binres)
+fix             tbeads_sdz tbeads  ave/chunk ${Neverys} ${Nrepeats} ${Nfreqs} stbeads density/number file tbeads_sdz
+
+
+#--- Temperature and Velocity profiles ---#
+compute        eall all chunk/atom bin/1d z lower $(zhi * v_binres)
+fix            temp_prof   all ave/chunk ${Neverys} ${Nrepeats} ${Nfreqs} eall temp file temp_sz
+fix            vel_prof_x_s all ave/chunk ${Neverys} ${Nrepeats} ${Nfreqs} eall vx vy file velp_sz
+
+#--- Dumps ---#
+dump            fullsh all custom ${Ndump_s} full_sh.dump id type xs ys zs mol
+#dump            beadssh abeads custom ${Ndump_s} beads_sh.dump id type xs ys zs mol
+
+#--- Run Shear ---#
+timestep    ${Tstep}
+run         ${Nshear}
+
+#--- Write Restart File ---#
+
+write_restart  ecs.rst

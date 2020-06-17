@@ -1,0 +1,239 @@
+# This is an input script that creates a mono disperse polymer brush bilayer
+# A coarse grained bead-spring model is used for the polymers which are end
+# grafted to the surfaces of 2 opposing FCC walls at random sites.
+# The polymer chains can be end grafted to each other to form Loops
+
+#--- Initialization ---#
+
+dimension     3
+boundary      p p f                 # periodic in x and y, but finite in z
+units         lj                    # Using LJ units
+atom_style    bond                  # Can only define bonds, no angles or dihedrals
+
+#--- Variables ---#
+
+variable      zhi    equal  $(1.1 * 2 * v_N + (2 * v_wthick))  # The initial height of the simulation box the value is such that no overlaps occur
+variable      z0     equal  $((v_zhi)/4 - (v_N)/30)            # This is the location at which to place the CoM of the molecule when added
+
+print "The number of grafted chains = $(v_M)"
+print "The number of beads per chain = $(v_N)"
+
+variable      check  equal count(all)              # The number of atoms in the system
+variable      ntwall equal count(twall)            # The number of atoms in the top wall
+variable      nbwall equal count(bwall)            # The number of atoms in the bottom wall
+variable      s      equal 234897                  # Seed for the RNG
+variable      Ls     equal $(round(v_L * (v_M)/2)) # Converts the fractional L to an integer number of Loops Ls
+
+#--- Create the simulation box ---#
+
+region        sbox block 0 ${xhi} 0 ${yhi} 0 ${zhi}
+create_box    5 sbox bond/types 2 extra/bond/per/atom 12 extra/special/per/atom 2
+
+mass          1 1.0                   # Wall atoms that are not grafted
+mass          2 1.0                   # Grafted Wall atoms
+mass          3 1.0                   # Grafted Bead of chain
+mass          4 1.0                   # Rest of the Beads
+mass          5 1.0                   # End-beads on each chain
+
+bond_style    hybrid fene harmonic                      # Finitely extensible linearly elastic bond between neighbouring beads
+bond_coeff    1 fene 30.0 30.0 1.0 1.0                  # NOTE: The Rmax is set to 30 only for this script
+bond_coeff    2 harmonic 800.0 $(1.5874 * sqrt(2)/2)    # These values are to keep the FFC wall structure
+special_bonds fene                                      # This kills the pairwise energy between all atoms that are directly bonded
+
+pair_style	  lj/cut $(1.122462 * v_sigLJ )        # LJ potential with rc=2^1/6
+pair_coeff    * * ${epsLJ} ${sigLJ}   # LJ potential between all atoms
+pair_coeff    1 1 0.0 0.0             # Except between wall atoms and themselves
+pair_coeff    1 2 0.0 0.0
+pair_coeff    2 2 0.0 0.0
+
+neighbor      5 bin                    # skin = 5 sigma  for neighbor list cutoff = force cutoff + skin
+neigh_modify  one 2000                 # max number of neighbors of one atom
+
+#--- Create and read the molecule file ---#
+python        BSMolf input 1 $N format i file BSMolf.py
+python        BSMolf invoke             # Call the python function with number of beads to write the mol file
+molecule      bs     bsmol.txt          # Read the Mol file to define the polymer chain
+
+#--- Define the FCC wall region ---#
+region        wall  block 0 ${xhi} 0 ${yhi} 0 ${wthick}
+lattice       fcc 1
+
+#--- Create the Top Brush  (At the bottom then rotate 180 degrees to top) ---#
+
+create_atoms  1 region wall
+group         twall  region wall
+
+# A loop to insert the Chains into the sim box and bond them to random wall atoms
+#-------------------------------------------------------------------------------------------------------------------#
+variable      i loop $M                                   # Index to insert M total number of chains
+label         loop                                        # Start of loop
+variable      randni equal round(random(1,${ntwall},$s))  # Pick a random "top" wall atom
+variable      randatomi equal ${randni}                   # This is to obtain an integer number for atom-id
+variable      randzi equal z[${randatomi}]                # Determine the z coordinate of the chosen atom
+if            "${randzi} < $(v_wthick - 0.7)" then "jump MDPBB.in loop" # if the chosen atom is not a surface atom then restart the loop
+set           atom ${randatomi} type 2                    # Set this grafted wall atom as a new type
+group         twg id ${randatomi}                         # Add this atom to a top-wall-grafted group
+variable      twgcount equal count(twg)
+print         "twg contains ${twgcount}"
+print         "i = $(v_i)"                                # The index i should always be equal to the number of atom in twg
+variable      x0 equal x[${randatomi}]                    # Determine its x-coord
+variable      y0 equal y[${randatomi}]                    # Determine its y-coord
+variable      check0 equal ${check}                       # Count the number of atoms in the simulation
+variable      b equal ${check}+1                          # The grafted bead id will be one higher after being inserted
+if            "${twgcount} != $(v_i)" then "jump MDPBB.in loop" # if they are not equal then the atom has already been picked and we restart loop with the same i
+create_atoms  2 single ${x0} ${y0} ${z0} mol bs 24987 units box remap yes rotate 0 0 0 1 # Otherwise insert the chain directly above the chosen wall atom pointing perpendicular to the wall
+set           mol $(mol[v_b]) mol $(v_i*2)
+variable      check1 equal ${check}                       # Count the new total number of atoms
+if            "${check1} != ${check0}" then "create_bonds  single/bond 1 ${randatomi} $b" &
+"next i"
+jump MDPBB.in loop                                         # End of the loop
+
+
+# We must now create the loops in the brush
+#--------------------------------------------------------------------------------------------------------------------#
+group        twlb  empty                                    # Group that will contain all the top wall looped end beads
+
+if            "${Ls} == 0" then "jump MDPBB.in skip1"       # This is to skip the loop if L=0 is given
+variable      i loop ${Ls}
+label         loopst
+variable      rchain1 equal round(random(1,$M,$s))          # Pick a random chain
+variable      rchain2 equal round(random(1,$M,$s))          # Pick another random chain
+variable      rbid1 equal $(v_ntwall+ v_rchain1 * v_N)      # Find the end bead id
+variable      rbid2 equal $(v_ntwall+ v_rchain2 * v_N)      # Find the end bead id
+variable      rbtype1 equal type[${rbid1}]                  # Find the types
+variable      rbtype2 equal type[${rbid2}]
+if            "$(v_rbtype1) != 5 || $(v_rbtype2) != 5" then "jump MDPBB.in loopst" # If either of them is not an end bead
+# If we did not jump to the start of the loop that means that both random beads are end beads
+group         twlbc id ${rbid1} ${rbid2}                    # Group of candidate end beads
+group         iftwlb union twlb twlbc                       # Add the candidates to the a group to check number
+# Before we make any bonds we should check that we have not chosen them before
+if            "$(count(iftwlb)) != $(2*(v_i))" then "group twlbc clear" "group iftwlb clear" "jump MDPBB.in loopst"
+# If we have reached this stage this means that the two candidate end beads have not been chosen before
+# We can then safely create a FENE bond between them and add them to the twlb group
+group         iftwlb clear
+group         twlb union twlb twlbc                         #added to the full group finally
+group         twlbc clear
+create_bonds  single/bond 1 ${rbid1} ${rbid2}
+print         "Made top loop number $(v_i)"
+next i
+jump MDPBB.in loopst
+
+label      skip1
+#-------------------------------------------------------------------------------------------------------------------#
+
+# Rotate the created brush about the centre of the simulation box by 180 degrees to make it true top brush
+displace_atoms all rotate $(v_xhi/2.0) $(v_yhi/2.0) $(v_zhi/2.0 - 1) 1 0 0 180 units box
+#-------------------------------------------------------------------------------------------------------------------#
+
+variable      ntop0 equal ${check}          # Count the total number of atoms in the top brush
+
+#--- Create the Bottom brush ---#
+
+# Repeating the same procedure as above again but with new atoms
+#-------------------------------------------------------------------------------------------------------------------#
+create_atoms  1 region wall
+group         bwall region wall
+
+variable      nbwall0 equal ${nbwall}
+
+variable      j loop $M
+label         loopj
+variable      randnj equal round(random(v_ntop0,$(v_ntop0 + v_nbwall0),$s))
+variable      randatomj equal ${randnj}
+variable      randzj equal z[${randatomj}]
+if            "${randzj} < $(v_wthick - 0.7)" then "jump MDPBB.in loopj"
+set           atom ${randatomj} type 2
+group         bwg id ${randatomj}                         # Add this atom to a bot-wall-grafted group
+variable      bwgcount equal count(bwg)
+print         "bwg contains ${bwgcount}"
+print         "j = $(v_j)"
+variable      x0 equal x[${randatomj}]
+variable      y0 equal y[${randatomj}]
+variable      check0 equal ${check}
+variable      b equal ${check}+1
+if            "${bwgcount} != $(v_j)" then "jump MDPBB.in loopj"
+create_atoms  2 single ${x0} ${y0} ${z0} mol bs 24987 units box remap yes rotate 0 0 0 1
+set           mol $(mol[v_b]) mol $(v_j * 2 - 1)
+variable      check1 equal ${check}
+if            "${check1} != ${check0}" then "create_bonds  single/bond 1 ${randatomj} $b" &
+"next j"
+jump MDPBB.in loopj
+
+
+# We must now create the loops in the bottom brush
+
+group        bwlb  empty      #Group that will contain all the bot wall looped end beads
+
+if            "${Ls} == 0" then "jump MDPBB.in skip2"
+
+variable      j loop ${Ls}
+label         loopsb
+
+variable      rchain1 equal round(random(1,$M,$s)) # Pick a random chain
+variable      rchain2 equal round(random(1,$M,$s))
+variable      rbid1 equal $(v_ntop0+v_nbwall0+ v_rchain1 * v_N)
+variable      rbid2 equal $(v_ntop0+v_nbwall0+ v_rchain2 * v_N)
+variable      rbtype1 equal type[${rbid1}]
+variable      rbtype2 equal type[${rbid2}]
+
+if            "$(v_rbtype1) != 5 || $(v_rbtype2) != 5" then "jump MDPBB.in loopsb"
+# If we did not jump to the start of the loop that means that both random beads are end beads
+# Before we make any bonds we should check that we have not chosen them before
+#print "The atom types are $(v_rbtype1) and $(v_rbtype2)"
+
+group         bwlbc id ${rbid1} ${rbid2}      # Group of candidate end beads (Bottom wall looped bead candidates)
+group         ifbwlb union bwlb bwlbc
+if            "$(count(ifbwlb)) != $(2*(v_j))" then "group bwlbc clear" "group ifbwlb clear" "jump MDPBB.in loopsb"
+# If we have reached this stage this means that the two candidate end beads have not been chosen before
+# We can then safely create a FENE bond between them and add them to the bwlb group
+group         ifbwlb clear
+group         bwlb union bwlb bwlbc
+group         bwlbc clear
+create_bonds  single/bond 1 ${rbid1} ${rbid2}
+print         "Made bottom loop number $(v_j)"
+
+next j
+jump MDPBB.in loopsb
+
+label     skip2
+
+
+# Assign the beads to 2 different groups of grafted and non-grafted beads
+
+group         gbeads type 3     # Grafted Beads
+group         fbeads type 4     # Free Beads
+group         ebeads type 5     # End Beads
+
+
+#--- Create harmonic bonds in the walls ---#
+
+create_bonds  many bwall bwall 2 0.5 1.2    # Create Harmonic bonds in walls between nearest neighbors
+create_bonds  many twall twall 2 0.5 1.2    # 12 bonds for each atom. Also creates special bonds.
+
+info system
+
+fix           ftop twall setforce 0.0 0.0 0.0  # Freeze top wall
+fix           fbot bwall setforce 0.0 0.0 0.0  # Freeze bottom wall
+
+
+#--- Minimize the system to obtain the initial structure for the PB bilayer ---#
+
+minimize      1.0e-4 1.0e-8 10000 100000
+
+#--- Shrink the simulation box such that it encloses the system exactly ---#
+
+variable z_f equal bound(all,zmin)
+variable z_c equal bound(all,zmax)
+
+change_box all z final ${z_f} $(v_z_c + 0.1) units box
+
+info variables                              # For diagnostics
+
+
+#--- Remove the fixes for the restart file ---#
+unfix        ftop
+unfix        fbot
+
+#--- Write Restart File ---#
+write_restart  MDPBB.rst
+#write_data     MDPBB.data

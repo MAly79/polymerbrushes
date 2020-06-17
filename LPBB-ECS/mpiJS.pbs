@@ -1,0 +1,48 @@
+#!/bin/bash
+
+#PBS -l select=1:ncpus=32:mpiprocs=32:mem=32gb
+#PBS -l walltime=24:00:00
+
+# Change above whatever computational resources
+# are required
+
+# Load modules for any applications
+module load intel-suite
+module load mpi
+module load anaconda3/personal
+source activate py27
+
+
+#module load lammps
+
+# PBS jobs start running in $HOME, so need to move it elsewhere
+# Ephemeral is a directory with unlimited space
+# but everything there gets deleted after a while
+# $PBS_JOBID is just a number assigned to each submission
+
+cd $EPHEMERAL
+mkdir $PBS_JOBID
+cd $PBS_JOBID
+
+# $PBS_O_WORKDIR is the directory where the pbs script was sent from
+cp $PBS_O_WORKDIR/* .
+
+# Run program, using 'mpiexec' to start the job
+# mpiexec automatically picks up the # of cores
+# assigned to the job. No other flags are required
+#  - note: don't use 'mpirun'
+
+# pbsexec ensures early termination of the job as
+# it approaches the time limit
+
+#In this case I have my own executable, but either
+#load a different module above or change the path
+
+mpiexec /rds/general/user/maa4617/home/lammps-7Aug19/src/lmp_mpi -in main.in
+
+# Copy any output back to the $PBS_O_WORKDIR
+#mkdir  $PBS_O_WORKDIR/Results
+
+#cp *  $PBS_O_WORKDIR/Results
+
+cp -R * $PBS_O_WORKDIR
