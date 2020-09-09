@@ -105,13 +105,13 @@ if __name__ == '__main__':
     abdens_data = read_chunk('abeads_sdz')
     abdens_df = pd.DataFrame(abdens_data)
     abdens_df.to_csv('abdps.csv')
-    #
-    # #Read in the velocity profile for shear
-    # velp_data = read_chunk('velp_sz')
-    # velp_df = pd.DataFrame(velp_data)
-    # velp_df.to_csv('velps.csv')
-    #
-    # #Read in the velocity profile for shear
-    # temp_data = read_chunk('temp_sz')
-    # temp_df = pd.DataFrame(temp_data)
-    # temp_df.to_csv('temps.csv')
+    
+    #Read in the velocity profile for shear
+    velp_data = read_chunk('velp_sz')
+    velp_df = pd.DataFrame(velp_data)
+    velp_df.to_csv('velps.csv')
+
+    #Read in the velocity profile for shear
+    temp_data = read_chunk('temp_sz')
+    temp_df = pd.DataFrame(temp_data)
+    temp_df.to_csv('temps.csv')

@@ -1,33 +1,33 @@
 #--- Brush Variables ---#
-
 variable      M      equal  60                 # The number of polymer chains grafted per brush
-variable      N      string 30                 # The number of beads per chain
-variable      L      equal  1                  # Fraction of LoopedChains/LinearChains (Looped Chains are made of 2 bonded linear chains)
+variable      N      string 30                 # The number of beads per chain backbone
+variable      S      string 0                  # The number of beads per side chain
+variable      G      string 4                  # The number of beads gap between side chains
+variable      L      equal  0.5                # Fraction of LoopedChains/LinearChains (Looped Chains are made of 2 bonded linear chains)
 variable      xhi    equal  30                 # The width of the polymer Brush
 variable      yhi    equal  30                 # The length of the polymer Brush
 variable      wthick equal  3                  # The thickness of the FFC walls wthick=1,2,3,4 gives 2,3,4,6 layers respectively
-
 #--- Simulation Variables ---#
 variable       Temp      index 1               # The Temperature of the Thermostats
 variable       Tstep     equal 0.005           # Timestep in Tau (default = 0.005)
 variable       Nequil    equal 500000          # Number of timesteps to equilibrate
 variable       Npre      equal 500000          # Number of timesteps to compress
-variable       Ncomp     equal 2000000         # Number of timesteps to compress
-variable       Nshear    equal 2000000         # Number of timesteps to shear
+variable       Ncomp     equal 1500000         # Number of timesteps to compress
+variable       Nshear    equal 1500000         # Number of timesteps to shear
 variable       Nthermo   equal 1000            # Number of timesteps between thermo data prints
 variable       Ndump_e   equal 10000           # snapshot every this many timesteps (equilibration)
 variable       Ndump_c   equal 10000           # snapshot every this many timesteps (compression)
 variable       Ndump_s   equal 10000           # snapshot every this many timesteps (Shearing)
 variable       Vwalli    index 0.0001 0.0005 0.001 0.005 0.01 0.05 0.1 0.5 1  # Relative wall Velocities (+-Vwall/2)
-variable       Pcomp     index 0.5             # Compressive Pressure applied to top wall
+variable       Pcomp     index 0.5             # Compressive Pressures applied to top wall
 
 
 #--- ForceFields ---#
-variable       epsLJ    equal 1.0              # The depth fo the Lennard-Jones potential well acting between all beads
-variable       sigLJ    equal 1.0              # The point at which the Lennard-Jones potential crosses zero
-variable       kFENE    equal 30.0             # The FENE spring constant
-variable       RmFENE   equal 1.5              # The max bond length for FENE bonds
-variable       RgSplit  equal 0.5              # Ignore this
+variable       epsLJ    equal 1.0
+variable       sigLJ    equal 1.0
+variable       kFENE    equal 30.0
+variable       RmFENE   equal 1.5
+variable       RgSplit  equal 0.5
 
 
 include        MDPBB.in                        # Jump to input script which creates the Brush Bilayer and Minimizes the structure

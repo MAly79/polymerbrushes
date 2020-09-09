@@ -11,9 +11,17 @@ reset_timestep  0
 
 #--- Redefine the bond coeffs ---#
 
+#bond_style    hybrid fene harmonic                      # Finitely extensible linearly elastic bond between neighbouring beads
 bond_coeff    1 fene ${kFENE} ${RmFENE} ${epsLJ} ${sigLJ}                # (K, Rmax) for FENE and (sigma, epsilon) for LJ
 bond_coeff    2 harmonic 800.0 $(1.5874 * sqrt(2)/2)                     # (K,ro) ro is the equilibrium distance
+#special_bonds fene                                                       # This kills the pairwise energy between all atoms that are directly bonded
 neigh_modify   every 1 delay 10 check yes                                # These are default values
+
+pair_style	  lj/cut $(1.122462 * v_sigLJ )        # LJ potential with rc=2^1/6
+pair_coeff    * * ${epsLJ} ${sigLJ}   # LJ potential between all atoms
+pair_coeff    1 1 0.0 0.0             # Except between wall atoms and themselves
+pair_coeff    1 2 0.0 0.0
+pair_coeff    2 2 0.0 0.0
 
 #--- Define variables ---#
 
@@ -38,10 +46,7 @@ variable       Nfreqs   equal ${Nshear}/10                 # Calculate bin avera
 variable       Neverys  equal 100                          # Use input values every this many timesteps
 variable       Nrepeats equal ${Nfreqs}/${Neverys}         # Number of times to use input values
 
-
 variable       binres   equal  0.001                       # Giving 1000 data points across the sim. box
-
-
 
 variable       bwzmin  equal bound(bwall,zmin)             # Bottom wall zmin
 variable       bwzmax  equal bound(bwall,zmax)             # Bottom wall zmax
@@ -113,6 +118,11 @@ group           rest_top2 subtract all twsurf
 compute         ggtop twsurf group/group rest_top
 compute         ggtop2 twsurf group/group rest_top2
 
+variable        Pn_b equal fcm(bwsurf,z)/(lx*ly)
+variable        Ps_b equal fcm(bwsurf,x)/(lx*ly)
+variable        Pn_t equal fcm(twsurf,z)/(lx*ly)
+variable        Ps_t equal fcm(twsurf,x)/(lx*ly)
+
 
 #--- Calculate the applied force on each atom for the pressure applied---#
 variable Fcomp equal (${Pcomp}*lx*ly)              # This is the force that should be applied to the top face during compression
@@ -176,7 +186,7 @@ fix             freeze_tout twout setforce 0.0 0.0 0.0
 
 #--- Thermo output ---#
 
-thermo_style  custom step etotal ke pe epair temp c_melTemp c_wallTemp v_Fcatom v_Pcomp2 press pxx pyy pzz pxy pxz pyz c_Vir c_Vir[1] c_Vir[2] c_Vir[3] c_Vir[4] c_Vir[5] c_Vir[6] c_melPress c_wallPress v_melDens v_surfcov v_aveRg v_aveRgG v_aveRgS v_Vwall v_srate v_D v_bwzmax zhi c_fbwall[1] c_fbwall[3] c_ftwall[1] c_ftwall[3] c_ggbot[1] c_ggbot[3] c_ggtop[1] c_ggtop[3]
+thermo_style  custom step etotal ke pe epair temp c_melTemp c_wallTemp v_Fcatom v_Pcomp2 press pxx pyy pzz pxy pxz pyz c_Vir c_Vir[1] c_Vir[2] c_Vir[3] c_Vir[4] c_Vir[5] c_Vir[6] c_melPress c_wallPress v_melDens v_surfcov v_aveRg v_aveRgG v_aveRgS v_Vwall v_srate v_D v_bwzmax zhi c_fbwall[1] c_fbwall[3] c_ftwall[1] c_ftwall[3] c_ggbot[1] c_ggbot[3] c_ggtop[1] c_ggtop[3] v_Pn_b v_Ps_b v_Pn_t v_Ps_t
 thermo        ${Nthermo}
 thermo_modify flush yes
 
@@ -195,7 +205,6 @@ undump       fulleq
 unfix abeads_edz
 unfix bbeads_edz
 unfix tbeads_edz
-
 unfix freeze_tout
 
 
@@ -226,12 +235,9 @@ fix             bbeads_cdz bbeads  ave/chunk ${Neveryc} ${Nrepeatc} ${Nfreqc} cb
 compute         ctbeads tbeads chunk/atom bin/1d z lower $(zhi * v_binres)
 fix             tbeads_cdz tbeads  ave/chunk ${Neveryc} ${Nrepeatc} ${Nfreqc} ctbeads density/number file tbeads_cdz
 
-
 fix             freeze_pre twout setforce 0.0 0.0 NULL          # Make top wall into piston can only move in Z direction
 fix             comp_pre twout aveforce 0.0 0.0 ${Fcpre}       # Apply force to each of the top wall atoms
 fix             rwalls_pre all wall/reflect zlo EDGE zhi EDGE        # Reflect all atoms that pass the top or bottom of the simulation box
-
-
 
 #--- Dumps ---#
 
@@ -244,13 +250,8 @@ timestep    ${Tstep}
 run         ${Npre}
 unfix       comp_pre
 
-
-
-
 #--- Fixes ---#
 fix             comp_tout twout aveforce 0.0 0.0 ${Fcatom}       # Apply force to each of the top wall atoms
-
-
 
 #--- Run Compression ---#
 timestep    ${Tstep}

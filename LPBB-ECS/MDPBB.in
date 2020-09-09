@@ -23,7 +23,10 @@ variable      ntwall equal count(twall)            # The number of atoms in the 
 variable      nbwall equal count(bwall)            # The number of atoms in the bottom wall
 variable      s      equal 234897                  # Seed for the RNG
 variable      Ls     equal $(round(v_L * (v_M)/2)) # Converts the fractional L to an integer number of Loops Ls
-
+variable      M_s    equal floor($N/($G+1))
+variable      Ntot   equal $(v_N + v_M_s * v_S)
+print         "M_s = ${M_s}"
+print         "Ntot = ${Ntot}"
 #--- Create the simulation box ---#
 
 region        sbox block 0 ${xhi} 0 ${yhi} 0 ${zhi}
@@ -40,17 +43,14 @@ bond_coeff    1 fene 30.0 30.0 1.0 1.0                  # NOTE: The Rmax is set 
 bond_coeff    2 harmonic 800.0 $(1.5874 * sqrt(2)/2)    # These values are to keep the FFC wall structure
 special_bonds fene                                      # This kills the pairwise energy between all atoms that are directly bonded
 
-pair_style	  lj/cut $(1.122462 * v_sigLJ )        # LJ potential with rc=2^1/6
-pair_coeff    * * ${epsLJ} ${sigLJ}   # LJ potential between all atoms
-pair_coeff    1 1 0.0 0.0             # Except between wall atoms and themselves
-pair_coeff    1 2 0.0 0.0
-pair_coeff    2 2 0.0 0.0
+pair_style soft 1.0
+pair_coeff * * 10.0
 
 neighbor      5 bin                    # skin = 5 sigma  for neighbor list cutoff = force cutoff + skin
 neigh_modify  one 2000                 # max number of neighbors of one atom
 
 #--- Create and read the molecule file ---#
-python        BSMolf input 1 $N format i file BSMolf.py
+python        BSMolf input 3 $N $S $G format iii file BSMolf.py
 python        BSMolf invoke             # Call the python function with number of beads to write the mol file
 molecule      bs     bsmol.txt          # Read the Mol file to define the polymer chain
 
@@ -80,7 +80,7 @@ variable      x0 equal x[${randatomi}]                    # Determine its x-coor
 variable      y0 equal y[${randatomi}]                    # Determine its y-coord
 variable      check0 equal ${check}                       # Count the number of atoms in the simulation
 variable      b equal ${check}+1                          # The grafted bead id will be one higher after being inserted
-if            "${twgcount} != $(v_i)" then "jump MDPBB.in loop" # if they are not equal then the atom has already been picked and we restart loop with the same i
+if            "${twgcount} != $(v_i)" then "jump MDPBB.in loop" # if they are not equal then the atom has already been picked and we restart loop with same i
 create_atoms  2 single ${x0} ${y0} ${z0} mol bs 24987 units box remap yes rotate 0 0 0 1 # Otherwise insert the chain directly above the chosen wall atom pointing perpendicular to the wall
 set           mol $(mol[v_b]) mol $(v_i*2)
 variable      check1 equal ${check}                       # Count the new total number of atoms
@@ -98,8 +98,8 @@ variable      i loop ${Ls}
 label         loopst
 variable      rchain1 equal round(random(1,$M,$s))          # Pick a random chain
 variable      rchain2 equal round(random(1,$M,$s))          # Pick another random chain
-variable      rbid1 equal $(v_ntwall+ v_rchain1 * v_N)      # Find the end bead id
-variable      rbid2 equal $(v_ntwall+ v_rchain2 * v_N)      # Find the end bead id
+variable      rbid1 equal $(v_ntwall+ (v_rchain1 - 1) * v_Ntot + v_N)      # Find the end bead id
+variable      rbid2 equal $(v_ntwall+ (v_rchain2 - 1) * v_Ntot + v_N)      # Find the end bead id
 variable      rbtype1 equal type[${rbid1}]                  # Find the types
 variable      rbtype2 equal type[${rbid2}]
 if            "$(v_rbtype1) != 5 || $(v_rbtype2) != 5" then "jump MDPBB.in loopst" # If either of them is not an end bead
@@ -171,8 +171,8 @@ label         loopsb
 
 variable      rchain1 equal round(random(1,$M,$s)) # Pick a random chain
 variable      rchain2 equal round(random(1,$M,$s))
-variable      rbid1 equal $(v_ntop0+v_nbwall0+ v_rchain1 * v_N)
-variable      rbid2 equal $(v_ntop0+v_nbwall0+ v_rchain2 * v_N)
+variable      rbid1 equal $(v_ntop0+v_nbwall0+ (v_rchain1 - 1) * v_Ntot + v_N)
+variable      rbid2 equal $(v_ntop0+v_nbwall0+ (v_rchain2 - 1) * v_Ntot + v_N)
 variable      rbtype1 equal type[${rbid1}]
 variable      rbtype2 equal type[${rbid2}]
 
@@ -218,7 +218,7 @@ fix           fbot bwall setforce 0.0 0.0 0.0  # Freeze bottom wall
 
 #--- Minimize the system to obtain the initial structure for the PB bilayer ---#
 
-minimize      1.0e-4 1.0e-8 10000 100000
+minimize      1.0e-6 1.0e-10 10000 100000
 
 #--- Shrink the simulation box such that it encloses the system exactly ---#
 
